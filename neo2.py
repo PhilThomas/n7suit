@@ -6,8 +6,10 @@ import math
 from collections import namedtuple
 import pyglet
 
+pyglet.options["shadow_window"] = False
+
 port = serial.Serial("/dev/ttyUSB0", baudrate=115200)
-time.sleep(1.5)
+#time.sleep(1.5)
 
 def escape(c):
     if c in "#$}":
@@ -17,7 +19,11 @@ def escape(c):
 
 def loadPixels(rgbs):
     msg = '$P' + ''.join(escape(b) for b in rgbs) + '#'
-    port.write(msg)
+    while True:
+        port.write(msg)
+        ack = port.read()
+        if ack == '+':
+            break
 
 rgb = namedtuple("rgb", "r g b")
 
@@ -38,16 +44,11 @@ class Gradient(object):
             self.stops.append((1.0, stops[0][1]))
 
     def __getitem__(self, t):
-        while t < 0.0:
-            t += 1.0
-        while t >= 1.0:
-            t -= 1.0
-
-        #if t < 0.0:
-        #    return self.stops[0][0]
-
-        #if t >= 1.0:
-        #    return self.stops[-1][0]
+        t = math.modf(t)[0]
+#        if t < 0.0:
+#            return self.stops[0][1]
+#        if t >= 1.0:
+#            return self.stops[-1][1]
 
         for i in range(len(self.stops)-1):
             if self.stops[i+1][0] > t:
@@ -55,11 +56,11 @@ class Gradient(object):
 
         (t0, rgb0), (t1, rgb1) = self.stops[i], self.stops[i+1]
 
-        m = (t - t0) / (t1 - t0)
+        alpha = (t - t0) / (t1 - t0)
 
-        r = rgb0.r + (rgb1.r - rgb0.r) * m
-        g = rgb0.g + (rgb1.g - rgb0.g) * m
-        b = rgb0.b + (rgb1.b - rgb0.b) * m
+        r = rgb0.r + (rgb1.r - rgb0.r) * alpha
+        g = rgb0.g + (rgb1.g - rgb0.g) * alpha
+        b = rgb0.b + (rgb1.b - rgb0.b) * alpha
 
         return rgb(r, g, b)
 
@@ -89,7 +90,6 @@ sprite = Gradient([
     (1/4.0, green),
     (2/4.0, blue),
     (3/4.0, white),
-    (4/4.0, yellow),
 ])
 
 coke = Gradient([
@@ -114,26 +114,61 @@ def pixel(rgb, v=1):
     return chr(int(v*rgb.r)) + chr(int(v*rgb.g)) + chr(int(v*rgb.b))
 
 t = 0.0
-grad = tron
 brightness = 0.7
+grads = (sprite, rainbow, rgbgrad, halloween, sprite, coke, pepsi, tron)
 
-def update(grad, dt):
+def update(dt):
     global t
-    rgbs = [grad[i/96.0 + t] for i in range(48)]
-    #rgbs = rgbs[2:] + rgbs[:2]
-    #brightness = 0.5*(1+math.sin(2*t*math.pi/20))
+    global grads
+    #rgbs = [grads[0][(i+5*t)/48.0] for i in range(48)]
+    #rgbs = [grads[0][(i+5*t)/48.0] for i in range(8)] 
+    rgbs = [grads[0][i/48.0+t] for i in range(16)] * 3
+    #brightness = (1+math.sin(2*math.pi*t))/2
+    brightness = 0.6
     pixels = ''.join(pixel(rgb, brightness) for rgb in rgbs)
     loadPixels(pixels)
-    time.sleep(1.0/100)
     t += dt
-    if t >= 48.0:
-        t -= 48.0
+    if t > 5.0:
+        t -= 5.0
+        grads = grads[1:] + grads[:1]
+
+
+class ImageScanner(object):
+    def __init__(self, filename):
+        with open(filename, 'rb') as stream:
+            self.image = pyglet.image.load(filename, file=stream).get_image_data()
+        self.width = self.image.width
+        self.height = self.image.height
+        self.data = self.image.get_data('RGB', self.width*3)
+        self.x = -self.width
+
+    def get(self, x, y):
+        x = int(self.width * x / 64.0)
+        y = int(self.height * y / 16.0)
+        if 0 <= x < self.width and 0 <= y < self.height:
+            offset = 3 * (y * self.width + x)
+            return self.data[offset:offset+3]
+        else:
+            return "\0\0\0"
+
+    def update(self, dt):
+        pixels = []
+        x = int(10*self.x)
+        w = 64
+        for y in range(16):
+            pixels.append(self.get((x+0) % w, y))
+        for i in range(16):
+            theta = 2 * math.pi * i / 16.0
+            pixels.append(self.get((x + int(16-5*math.sin(theta))) % w, 8+int(4*math.cos(theta))))
+        for y in range(16):
+            pixels.append(self.get((x+31) % w, y))
+        loadPixels(''.join(pixels))
+        self.x += dt
+
+
+tiger = ImageScanner("n7.jpg")
 
 if __name__ == "__main__":
-    #pyglet.clock.schedule_interval(update, 1/30.0)
-    #pyglet.app.run()
-    while True:
-        for g in (rainbow, rgbgrad, halloween, sprite, coke, pepsi, tron):
-            for i in range(50):
-                update(g, 1.0/100)
+    pyglet.clock.schedule_interval(update, 1/60.0)
+    pyglet.app.run()
 
