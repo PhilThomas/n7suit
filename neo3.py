@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 
 import serial
-import time
 import math
 from collections import namedtuple
-import pyglet
+import pygame
+import pygame.image
+import pygame.time
 
-pyglet.options["shadow_window"] = False
+pygame.init()
 
-port = serial.Serial("/dev/ttyUSB0", baudrate=115200)
-#time.sleep(1.5)
+port = serial.Serial("/dev/ttyUSB0", baudrate=115200, timeout=0.5)
 
 def escape(c):
     if c in "#$}":
@@ -122,32 +122,29 @@ def update(dt):
     global grads
     #rgbs = [grads[0][(i+5*t)/48.0] for i in range(48)]
     #rgbs = [grads[0][(i+5*t)/48.0] for i in range(8)] 
-    rgbs = [grads[0][i/48.0+t] for i in range(16)] * 3
-    #brightness = (1+math.sin(2*math.pi*t))/2
-    brightness = 0.6
+    rgbs = [grads[0][i/16.0+t] for i in range(16)] * 3
+    brightness = (1+math.sin(2*math.pi*t/5))/2
+    #brightness = 0.6
     pixels = ''.join(pixel(rgb, brightness) for rgb in rgbs)
     loadPixels(pixels)
     t += dt
     if t > 5.0:
         t -= 5.0
         grads = grads[1:] + grads[:1]
+        print clock.get_fps()
 
 
 class ImageScanner(object):
     def __init__(self, filename):
-        with open(filename, 'rb') as stream:
-            self.image = pyglet.image.load(filename, file=stream).get_image_data()
-        self.width = self.image.width
-        self.height = self.image.height
-        self.data = self.image.get_data('RGB', self.width*3)
-        self.x = -self.width
+        self.image = pygame.transform.flip(pygame.transform.scale(pygame.image.load(filename), (32, 16)), False, True)
+        self.x = -32
 
     def get(self, x, y):
-        x = int(self.width * x / 64.0)
-        y = int(self.height * y / 16.0)
-        if 0 <= x < self.width and 0 <= y < self.height:
-            offset = 3 * (y * self.width + x)
-            return self.data[offset:offset+3]
+        x = int(x)
+        y = int(y)
+        if 0 <= x < 32 and 0 <= y < 16:
+            (r, g, b, a) = self.image.get_at((x, y))
+            return chr(r)+chr(g)+chr(b)
         else:
             return "\0\0\0"
 
@@ -158,7 +155,7 @@ class ImageScanner(object):
         for y in range(16):
             pixels.append(self.get((x+0) % w, y))
         for i in range(16):
-            theta = 2 * math.pi * i / 16.0
+            theta = 2 * math.pi * (i-0) / 16.0
             pixels.append(self.get((x + int(16-5*math.sin(theta))) % w, 8+int(4*math.cos(theta))))
         for y in range(16):
             pixels.append(self.get((x+31) % w, y))
@@ -169,12 +166,13 @@ class ImageScanner(object):
 import sys
 filename = sys.argv[1]
 #tiger = ImageScanner("sprite.png")
-print "loading"
 tiger = ImageScanner(filename)
-print "done"
+
+clock = pygame.time.Clock()
 
 if __name__ == "__main__":
-    pyglet.clock.schedule_interval(tiger.update, 1/60.0)
-    #pyglet.clock.schedule_interval(update, 1/60.0)
-    pyglet.app.run()
+
+    while True:
+        update(clock.tick(60) / 1000.0)
+        #tiger.update(clock.tick(60) / 1000.0)
 
